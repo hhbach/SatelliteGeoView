@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Iridium Satellites Visualization</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <script>
+        // Set Cesium Ion access token
+        Cesium.Ion.defaultAccessToken = 'your-cesium-ion-access-token';
+
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            imageryProvider: new Cesium.TileMapServiceImageryProvider({
+        url: Cesium.buildModuleUrl('Assets/Textures/NaturalEarthII')
+    }),
+        baseLayerPicker: true,
+        terrainProvider: new Cesium.EllipsoidTerrainProvider()
+        });
+
+        // Sample TLE data for Iridium satellites (Replace with actual TLE data)
+        const iridiumTLEs = [
+            {
+                name: "SV101",
+                tle1: "1 24946U 97051C   23150.51234567  .00000023  00000-0  00000+0 0  9991",
+                tle2: "2 24946  86.4000 123.4567 0001234  45.6789 234.5678 14.34267890 12345"
+            },
+            {
+                name: "Iridium NEXT",
+                tle1: "1 40000U 14001A   23150.51234567  .00000012  00000-0  00000+0 0  9992",
+                tle2: "2 40000  86.5000 210.4567 0005678 120.6789 300.5678 14.12345678 67890"
+            }
+        ];
+
+        // Function to compute satellite positions and add them to Cesium
+        function addSatellites(tles) {
+            tles.forEach(satel => {
+                const satrec = satellite.twoline2satrec(satel.tle1, satel.tle2);
+
+                // Add the satellite to Cesium viewer
+                const satelliteEntity = viewer.entities.add({
+                    name: satel.name,
+                    position: new Cesium.CallbackProperty(() => {
+                        const now = new Date();
+                        const gmst = satellite.gstime(now);
+                        const positionEci = satellite.propagate(satrec, now).position;
+                        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+                        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+                        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+                        const height = positionGd.height * 1000; // Convert km to meters
+
+                        return Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+                    }, false),
+                    point: {
+                        pixelSize: 10,
+                        color: Cesium.Color.RED,
+						
+                    },
+                    label: {
+                        text: satellite.name,
+                        font: '14pt sans-serif',
+                        fillColor: Cesium.Color.YELLOW,
+                        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                        outlineWidth: 2,
+                        outlineColor: Cesium.Color.BLACK,
+                        verticalOrigin: Cesium.VerticalOrigin.BOTTOM
+                    }
+                });
+            });
+        }
+
+        // Add Iridium satellites to the viewer
+        addSatellites(iridiumTLEs);
+
+        // Set the initial camera view
+        viewer.zoomTo(viewer.entities);
+    </script>
+</body>
+</html>
