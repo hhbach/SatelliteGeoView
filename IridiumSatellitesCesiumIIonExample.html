@@ -37,6 +37,8 @@ const openStreetMapImagery = new Cesium.OpenStreetMapImageryProvider({
 });
 viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
 
+
+
         // Fetch TLE data from Celestrak
         async function fetchTLEData(url) {
             const response = await fetch(url);
@@ -109,7 +111,6 @@ viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
         fetchTLEData('https://celestrak.org/NORAD/elements/gp.php?GROUP=iridium-NEXT&FORMAT=tle')
             .then(tles => {
                 addSatellites(tles);
-                viewer.zoomTo(viewer.entities);
             })
             .catch(error => {
                 console.error('Error fetching TLE data:', error);
@@ -119,6 +120,10 @@ viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
         viewer.clock.shouldAnimate = true; // Enable clock animation
         viewer.clock.multiplier = 1; // Set the time speed multiplier
         viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK; // Use real-world time
+
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(-98.5795, 39.8283, 20000000), // Longitude, Latitude, and height
+        });
     </script>
 </body>
 </html>
