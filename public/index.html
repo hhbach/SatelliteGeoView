@@ -14,32 +14,164 @@
             padding: 0;
             overflow: hidden;
         }
+        #toggleButton {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
     <div id="cesiumContainer"></div>
+    <button id="toggleButton" class="cesium-button">Toggle Coverage Circles</button>
     <script>
-        // Set Cesium Ion access token
         Cesium.Ion.defaultAccessToken = 'your-cesium-ion-access-token';
 
         const viewer = new Cesium.Viewer('cesiumContainer', {
-    imageryProvider: false, // Prevent Cesium from automatically adding the default imagery provider
-    baseLayerPicker: false,
-});
+            imageryProvider: false,
+            baseLayerPicker: false,
+        });
 
-// Clear the default credit display
-viewer.scene.frameState.creditDisplay.container.innerHTML = '';
+        viewer.scene.frameState.creditDisplay.container.innerHTML = '';
 
+        const openStreetMapImagery = new Cesium.OpenStreetMapImageryProvider({
+            url: 'https://tile.openstreetmap.org/',
+        });
+        viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
 
-// Add OpenStreetMap as the default imagery provider
-const openStreetMapImagery = new Cesium.OpenStreetMapImageryProvider({
-    url: 'https://tile.openstreetmap.org/',
-});
-viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
+        const satelliteEntities = [];
+        let circlesVisible = false;
 
+        function computeCircleCartesian(centerCartesian, radiusInMeters, granularity = 64) {
+            const positions = [];
+            const transformMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(centerCartesian);
 
+            for (let i = 0; i <= granularity; i++) {
+                const angle = (i / granularity) * Cesium.Math.TWO_PI;
+                const x = radiusInMeters * Math.cos(angle);
+                const y = radiusInMeters * Math.sin(angle);
+                const z = 0;
 
-        // Fetch TLE data from Celestrak
+                const point = Cesium.Cartesian3.fromArray([x, y, z]);
+                const transformedPoint = Cesium.Matrix4.multiplyByPoint(transformMatrix, point, new Cesium.Cartesian3());
+
+                positions.push(transformedPoint);
+            }
+
+            return positions;
+        }
+
+        function addSatellites(tles) {
+            tles.forEach(satel => {
+                const satrec = satellite.twoline2satrec(satel.tle1, satel.tle2);
+                const satelliteColor = Cesium.Color.fromRandom({ alpha: 0.8 });
+
+                const entity = viewer.entities.add({
+                    name: satel.name,
+                    position: new Cesium.CallbackProperty(() => {
+                        const cesiumTime = viewer.clock.currentTime;
+                        const jsDate = Cesium.JulianDate.toDate(cesiumTime);
+                        const positionAndVelocity = satellite.propagate(satrec, jsDate);
+                        const positionEci = positionAndVelocity.position;
+
+                        if (!positionEci) return null;
+
+                        const gmst = satellite.gstime(jsDate);
+                        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+
+                        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+                        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+                        const height = positionGd.height * 1000;
+
+                        return Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+                    }, false),
+                    orientation: new Cesium.CallbackProperty(() => {
+                        const cesiumTime = viewer.clock.currentTime;
+                        const jsDate = Cesium.JulianDate.toDate(cesiumTime);
+                        const positionAndVelocity = satellite.propagate(satrec, jsDate);
+                        const positionEci = positionAndVelocity.position;
+                        const velocityEci = positionAndVelocity.velocity;
+
+                        if (!positionEci) return null;
+
+                        const gmst = satellite.gstime(jsDate);
+                        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+                        
+
+                        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+                        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+                        const height = positionGd.height * 1000;
+
+                        const velocityGd = satellite.eciToGeodetic(velocityEci, gmst);
+
+                        const movingNorth = velocityGd.latitude > 0; // Positive latitude indicates northward movement
+
+// Adjust heading based on direction
+                        const heading = movingNorth ? Cesium.Math.toRadians(90) : Cesium.Math.toRadians(270); // 0° for north, 180° for south
+
+                        const position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+                        const hpr = new Cesium.HeadingPitchRoll(heading, Cesium.Math.toRadians(180), Cesium.Math.toRadians(-90));
+
+                        return Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+                    }, false),
+                    model: {
+                        uri: "http://bespokekeys.com/irsatellite.glb",
+                        scale: 1.0,
+                        minimumPixelSize: 64,
+                        maximumScale: 200,
+                        silhouetteColor: Cesium.Color.RED,
+                        silhouetteSize: 2
+                    },
+                    label: {
+                        text: satel.name,
+                        font: '14pt sans-serif',
+                        fillColor: Cesium.Color.YELLOW,
+                        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                        outlineWidth: 2,
+                        outlineColor: Cesium.Color.BLACK,
+                        verticalOrigin: Cesium.VerticalOrigin.BOTTOM
+                    },
+                    polyline: {
+                        positions: new Cesium.CallbackProperty(() => {
+                            if(circlesVisible)
+                                {
+                                    const cesiumTime = viewer.clock.currentTime;
+                                    const jsDate = Cesium.JulianDate.toDate(cesiumTime);
+                                    const positionAndVelocity = satellite.propagate(satrec, jsDate);
+                                    const positionEci = positionAndVelocity.position;
+
+                                    if (!positionEci) return null;
+
+                                    const gmst = satellite.gstime(jsDate);
+                                    const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+
+                                    const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+                                    const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+                                    const height = positionGd.height * 1000;
+
+                                    const centerCartesian = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+                                    return computeCircleCartesian(centerCartesian, 4400000, 64);
+                                }
+                        }, false),
+                        width: 2,
+                        material: satelliteColor,
+                    }
+                });
+
+                satelliteEntities.push(entity);
+            });
+        }
+
+        function toggleCoverageCircles() {
+            circlesVisible = !circlesVisible;
+            satelliteEntities.forEach(entity => {
+                entity.polyline.show = circlesVisible;
+            });
+        }
+
+        document.getElementById('toggleButton').addEventListener('click', toggleCoverageCircles);
+
         async function fetchTLEData(url) {
             const response = await fetch(url);
             const text = await response.text();
@@ -56,59 +188,7 @@ viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
             return satellites;
         }
 
-        // Function to compute satellite positions and add them to Cesium
-        function addSatellites(tles) {
-            tles.forEach(satel => {
-                const satrec = satellite.twoline2satrec(satel.tle1, satel.tle2);
-
-                // Add the satellite to Cesium viewer
-                viewer.entities.add({
-                    name: satel.name,
-                    position: new Cesium.CallbackProperty(() => {
-                        // Get the current time from Cesium's clock
-                        const cesiumTime = viewer.clock.currentTime;
-
-                        // Convert Cesium JulianDate to JavaScript Date
-                        const jsDate = Cesium.JulianDate.toDate(cesiumTime);
-
-                        // Propagate satellite position
-                        const positionAndVelocity = satellite.propagate(satrec, jsDate);
-                        const positionEci = positionAndVelocity.position;
-
-                        if (!positionEci) {
-                            return null; // Return null if propagation fails
-                        }
-
-                        // Compute GMST and geodetic position
-                        const gmst = satellite.gstime(jsDate);
-                        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
-
-                        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
-                        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
-                        const height = positionGd.height * 1000; // Convert km to meters
-
-                        // Return the updated position as a Cartesian3
-                        return Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
-                    }, false),
-                    point: {
-                        pixelSize: 10,
-                        color: Cesium.Color.RED,
-                    },
-                    label: {
-                        text: satel.name,
-                        font: '14pt sans-serif',
-                        fillColor: Cesium.Color.YELLOW,
-                        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                        outlineWidth: 2,
-                        outlineColor: Cesium.Color.BLACK,
-                        verticalOrigin: Cesium.VerticalOrigin.BOTTOM
-                    }
-                });
-            });
-        }
-
-        // Fetch TLE data and add satellites to the viewer
-        fetchTLEData('https://celestrak.org/NORAD/elements/gp.php?GROUP=iridium-NEXT&FORMAT=tle')
+        fetchTLEData('http://www.bespokekeys.com/tle-data')
             .then(tles => {
                 addSatellites(tles);
             })
@@ -116,13 +196,12 @@ viewer.imageryLayers.addImageryProvider(openStreetMapImagery);
                 console.error('Error fetching TLE data:', error);
             });
 
-        // Ensure Cesium clock is animating and synced to real-world time
-        viewer.clock.shouldAnimate = true; // Enable clock animation
-        viewer.clock.multiplier = 1; // Set the time speed multiplier
-        viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK; // Use real-world time
+        viewer.clock.shouldAnimate = true;
+        viewer.clock.multiplier = 1;
+        viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK;
 
         viewer.camera.setView({
-            destination: Cesium.Cartesian3.fromDegrees(-98.5795, 39.8283, 20000000), // Longitude, Latitude, and height
+            destination: Cesium.Cartesian3.fromDegrees(-98.5795, 39.8283, 20000000),
         });
     </script>
 </body>
